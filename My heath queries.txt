@@ -1,0 +1,1676 @@
+**************
+ALL SQL SERVER Scripts
+https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit
+https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/blob/main/sp_BlitzWho.sql
+*********************************************************************************
+Exec sp_Blitz @IgnorePrioritiesAbove = 50;
+Exec sp_Blitz @CheckUserDatabaseObjects = 0;
+Exec sp_Blitz @OutputDatabaseName = 'dba_admin', @OutputSchemaName = 'dbo', @OutputTableName = 'Blitz_Results';
+
+Exec sp_BlitzFirst
+
+Exec sp_BlitzIndex
+Exec sp_BlitzIndex @GetAllDatabases = 1, @BringThePain = 1; ---Runs for a very long time
+GO
+*****************************************************************************************
+checking the task status
+********************
+exec msdb.dbo.rds_task_status @db_name='CitrixRC-CLOUDSite'
+
+https://portworx.com/blog/ha-postgresql-kubernetes/
+exec rdsadmin.dbo.rds_modify_db_name 'AdventureWorks','AdventureWorks2'
+https://dbalifeeasy.com/category/aws/
+SELECT id,greatest(created_on,updated_on) FROM %s ORDER BY greatest(created_on,updated_on) DESC LIMIT 1;
+pgbadger postgresql.log.* -o pgbadger_test1_`date +\%F`.html
+select name, setting, min_val, max_val, context from pg_settings where name='shared_buffers';
+select name,setting,unit from pg_settings where name in ('log_checkpoints','log_connections','log_disconnections','log_lock_waits','log_temp_files','log_autovacuum_min_duration','log_error_verbosity','log_min_duration_statement','log_min_duration_statement','lc_messages');
+pg_dump -U tecmint -h 10.10.20.10 tecmintdb | pqsl -U tecmint -h 10.10.20.30 tecmintdb
+./get_credentials.py oneok development
+sqlcmd -U <user> -P <password> -S <server address>
+\timing on
+https://pgconfigurator.cybertec.at/
+
+https://www.databasejournal.com/ms-sql/
+
+select pid, usename, application_name, backend_start, state_change, state from pg_stat_activity where state= ’idle’;
+
+SELECT usename, datname, state, count(*) FROM pg_stat_activity GROUP BY 1, 2, 3, 4 ORDER BY 5 DESC;
+
+SELECT count(*) AS total_conns FROM pg_stat_activity;
+
+SELECT current_database() datname, schemaname, relname, seq_scan, seq_tup_read, idx_scan, idx_tup_fetch, vacuum_count, autovacuum_count, analyze_count, autoanalyze_count FROM pg_stat_user_tables;
+
+SELECT datname, temp_files AS "Temporary files",temp_bytes AS "Size of temporary files" FROM pg_stat_database ;
+
+select datname, temp_files , pg_size_pretty(temp_bytes) as temp_file_size, deadlocks  FROM   pg_stat_database order by temp_bytes desc;
+
+***************
+linux scp command : scp or Secure Copy is primarily used to copy between a local host and remote host, or two remote hosts, via ssh. The cp command is for copying files locally, i.e. within your host's system  website    https://linuxconfig.org/Scp
+********************************************************************
+scp /path/to/local/file user@server:/path/to/target/dir/
+scp file.txt linuxconfig@10.1.1.20:/home/linuxconfig/newname.txt
+To copy a directory instead of a file to the remote system, you will need to use the -r option in your scp command.
+ scp -r Downloads linuxconfig@10.1.1.20:/home/linuxconfig/
+to copy a remote file into our local system
+scp linuxconfig@10.1.1.20:/home/linuxconfig/file.txt /path/to/destination
+you can also copy files from one remote system to yet another remote system
+scp user1@host1:/files/file.txt user2@host2:/files
+
+******************
+pg_dump best practices
+*****************88
+**schedule a backup with a date file  0 3 * * * pg_dump dbname | gzip > ~/backup/db/$(date +%Y-%m-%d).psql.gz  before you schedule this, make sure to create a .pgpass file in the home directory of the account that pg_dump will run as. then chmod 600 ~/.pgpass
+** to dump a huge database and compress the dump in order to not have to wait hours till it's done.  pg_dump -Ft -U -v | gzip > db$(date +%d-%m-%y_%H-%M).tar.gz   to untart this just run tar -xvf xxx.tar.gz
+**pg_dump -U user -d mydb | gzip > mydb.pgsql.gz  to restore  gunzip -c mydb.pgsql.gz | psql dbname -U user
+
+**************************************************************
+Database guide.  https://database.guide/category/dbms/ordbms/postgresql/
+**************************************************************
+checking a schema size in postgres
+*****************************
+SELECT pg_size_pretty(sum(pg_relation_size(quote_ident(schemaname) || '.' || quote_ident(tablename)))::bigint) FROM pg_tables 
+WHERE schemaname = 'yourschemaname'
+
+********************************
+Finding errors in the configuration files
+*****************************************
+https://dev.to/bolajiwahab/cleanly-modifying-postgresql-configurations-42d3
+The issues can be quickly fixed because we can check the state of the configuration before reloading or restarting
+
+SELECT name, sourcefile, sourceline, setting, error FROM pg_catalog.pg_file_settings WHERE error IS NOT NULL;
+
+
+**********************************************************
+To know if vacuum full is needed
+***************************************
+WITH constants AS (
+-- define some constants for sizes of things
+-- for reference down the query and easy maintenance
+SELECT current_setting('block_size')::numeric AS bs, 23 AS hdr, 8 AS ma
+),
+no_stats AS (
+-- screen out table who have attributes
+-- which dont have stats, such as JSON
+SELECT table_schema, table_name, 
+n_live_tup::numeric as est_rows,
+pg_table_size(relid)::numeric as table_size
+FROM information_schema.columns
+JOIN pg_stat_user_tables as psut
+ON table_schema = psut.schemaname
+AND table_name = psut.relname
+LEFT OUTER JOIN pg_stats
+ON table_schema = pg_stats.schemaname
+AND table_name = pg_stats.tablename
+AND column_name = attname 
+WHERE attname IS NULL
+AND table_schema NOT IN ('pg_catalog', 'information_schema')
+GROUP BY table_schema, table_name, relid, n_live_tup 
+),
+null_headers AS (
+-- calculate null header sizes
+-- omitting tables which dont have complete stats
+-- and attributes which aren't visible
+SELECT
+hdr+1+(sum(case when null_frac <> 0 THEN 1 else 0 END)/8) as nullhdr,
+SUM((1-null_frac)*avg_width) as datawidth,
+MAX(null_frac) as maxfracsum,
+schemaname, tablename, hdr, ma, bs FROM pg_stats CROSS JOIN constants
+LEFT OUTER JOIN no_stats
+ON schemaname = no_stats.table_schema
+AND tablename = no_stats.table_name
+WHERE schemaname NOT IN ('pg_catalog', 'information_schema')
+AND no_stats.table_name IS NULL
+AND EXISTS ( SELECT 1
+FROM information_schema.columns
+WHERE schemaname = columns.table_schema
+AND tablename = columns.table_name )
+GROUP BY schemaname, tablename, hdr, ma, bs
+), data_headers AS (
+-- estimate header and row size
+SELECT
+ma, bs, hdr, schemaname, tablename, (datawidth+(hdr+ma-(case when hdr%ma=0 THEN ma ELSE hdr%ma END)))::numeric AS datahdr, (maxfracsum*(nullhdr+ma-(case when nullhdr%ma=0 THEN ma ELSE nullhdr%ma END))) AS nullhdr2
+FROM null_headers), table_estimates AS (
+-- make estimates of how large the table should be
+-- based on row and page size
+SELECT schemaname, tablename, bs,
+reltuples::numeric as est_rows, relpages * bs as table_bytes,
+CEIL((reltuples*
+(datahdr + nullhdr2 + 4 + ma -
+(CASE WHEN datahdr%ma=0 
+THEN ma ELSE datahdr%ma END)
+)/(bs-20))) * bs AS expected_bytes, reltoastrelid FROM data_headers
+JOIN pg_class ON tablename = relname
+JOIN pg_namespace ON relnamespace = pg_namespace.oid
+AND schemaname = nspname
+WHERE pg_class.relkind = 'r'),
+estimates_with_toast AS (
+-- add in estimated TOAST table sizes
+-- estimate based on 4 toast tuples per page because we dont have 
+-- anything better.  also append the no_data tables
+SELECT schemaname, tablename, 
+TRUE as can_estimate, est_rows,
+table_bytes + ( coalesce(toast.relpages, 0) * bs ) as table_bytes,
+expected_bytes + ( ceil( coalesce(toast.reltuples, 0) / 4 ) * bs ) as expected_bytes
+FROM table_estimates LEFT OUTER JOIN pg_class as toast
+ON table_estimates.reltoastrelid = toast.oid
+AND toast.relkind = 't'),
+table_estimates_plus AS (
+-- add some extra metadata to the table data
+-- and calculations to be reused
+-- including whether we cant estimate it
+-- or whether we think it might be compressed
+SELECT current_database() as databasename,
+schemaname, tablename, can_estimate, est_rows,
+CASE WHEN table_bytes > 0
+THEN table_bytes::NUMERIC
+ELSE NULL::NUMERIC END
+AS table_bytes,
+CASE WHEN expected_bytes > 0 
+THEN expected_bytes::NUMERIC
+ELSE NULL::NUMERIC END
+AS expected_bytes,
+CASE WHEN expected_bytes > 0 AND table_bytes > 0
+AND expected_bytes <= table_bytes
+THEN (table_bytes - expected_bytes)::NUMERIC
+ELSE 0::NUMERIC END AS bloat_bytes
+FROM estimates_with_toast
+UNION ALL
+SELECT current_database() as databasename, 
+table_schema, table_name, FALSE, 
+est_rows, table_size,
+NULL::NUMERIC, NULL::NUMERIC
+FROM no_stats),
+bloat_data AS (
+-- do final math calculations and formatting
+select current_database() as databasename,
+schemaname, tablename, can_estimate, 
+table_bytes, round(table_bytes/(1024^2)::NUMERIC,3) as table_mb,
+expected_bytes, round(expected_bytes/(1024^2)::NUMERIC,3) as expected_mb,
+round(bloat_bytes*100/table_bytes) as pct_bloat,
+round(bloat_bytes/(1024::NUMERIC^2),2) as mb_bloat,
+table_bytes, expected_bytes, est_rows
+FROM table_estimates_plus)
+-- filter output for bloated tables
+SELECT databasename, schemaname, tablename, can_estimate, est_rows, pct_bloat, mb_bloat, table_mb FROM bloat_data
+WHERE ( pct_bloat >= 50 AND mb_bloat >= 00 ) --[more than 20mb bloat,at the same time if this bloat 50% of the table size, requires vacuum full]
+OR ( pct_bloat >= 25 AND mb_bloat >= 1000 ) --[more than 1gb bloat, minimum 25% of tablesize]
+ORDER BY pct_bloat DESC;
+
+
+********************************
+Query to track the progress of vacuum
+********************************
+SELECT
+p.pid,
+now() - a.xact_start AS duration,
+coalesce(wait_event_type ||'.'|| wait_event, 'f') AS waiting,
+CASE
+WHEN a.query ~*'^autovacuum.*to prevent wraparound' THEN 'wraparound'
+WHEN a.query ~*'^vacuum' THEN 'user'
+ELSE 'regular'
+END AS mode,
+p.datname AS database,
+p.relid::regclass AS table,
+p.phase,
+pg_size_pretty(p.heap_blks_total * current_setting('block_size')::int) AS table_size,
+pg_size_pretty(pg_total_relation_size(relid)) AS total_size,
+pg_size_pretty(p.heap_blks_scanned * current_setting('block_size')::int) AS scanned,
+pg_size_pretty(p.heap_blks_vacuumed * current_setting('block_size')::int) AS vacuumed,
+round(100.0 * p.heap_blks_scanned / p.heap_blks_total, 1) AS scanned_pct,
+round(100.0 * p.heap_blks_vacuumed / p.heap_blks_total, 1) AS vacuumed_pct,
+p.index_vacuum_count,
+round(100.0 * p.num_dead_tuples / p.max_dead_tuples,1) AS dead_pct
+FROM pg_stat_progress_vacuum p
+JOIN pg_stat_activity a using (pid)
+ORDER BY now() - a.xact_start DESC;
+
+or
+
+SELECT * FROM pg_stat_progress_vacuum;
+
+***************************************
+VAUUM command not cleaning dead tuples
+**************************************
+https://stackoverflow.com/questions/47917611/postgres-vacuum-command-does-not-clean-up-dead-tuples
+https://www.cybertec-postgresql.com/en/reasons-why-vacuum-wont-remove-dead-rows/
+
+******************
+checking ids autovacuum is currently running,
+*******************
+SELECT datname, usename, pid, state, wait_event, current_timestamp - xact_start AS xact_runtime, query FROM pg_stat_activity WHERE upper(query) LIKE '%COPY%' ORDER BY xact_start;
+SELECT datname, usename, pid, state, wait_event, current_timestamp - xact_start AS xact_runtime, query FROM pg_stat_activity ORDER BY xact_start;
+
+select schemaname, relname, n_dead_tup from pg_catalog.pg_stat_all_tables where n_dead_tup>0;
+
+*****************
+revoke a database connection
+****************************************
+droping all connections to the database before droping that database
+
+REVOKE CONNECT ON DATABASE e5 FROM PUBLIC, e5;
+[11:54 AM] Victor Gonyo
+REVOKE CONNECT ON DATABASE ebdb FROM PUBLIC, adminuser;
+
+
+SELECT pg_terminate_backend(pg_stat_activity.pid)
+FROM pg_stat_activity
+WHERE pg_stat_activity.datname = 'janus'
+AND pid <> pg_backend_pid()
+AND pg_stat_activity.state = 'idle';
+
+
+SELECT
+pg_terminate_backend(pid)
+FROM
+pg_stat_activity
+WHERE
+-- don't kill my own connection!
+pid <> pg_backend_pid()
+-- don't kill the connections to other databases
+AND datname = 'e5'
+;
+
+DROP database e5;
+
+CREATE DATABASE e5 OWNER e5;
+****************************
+
+
+Checking if a user's priviledges on a specific table
+******************************************
+SELECT table_catalog, table_schema, table_name, privilege_type
+FROM information_schema.table_privileges
+WHERE grantee = 'MY_USER';
+
+SELECT "name",
+pg_catalog.has_schema_privilege(current_user, "name", 'CREATE') AS "create",
+pg_catalog.has_schema_privilege(current_user, "name", 'USAGE') AS "usage"
+FROM "names";
+
+
+*************************
+Database creation date in postgres
+**********************************
+SELECT (pg_stat_file('base/'||oid ||'/PG_VERSION')).modification, datname FROM pg_database;
+
+secondly
+Find database OID:
+postgres=# select oid,datname from pg_database where datname='bars_paidserv';
+-[ RECORD 1 ]----------
+oid     | 5137290
+datname | bars_paidserv
+
+list PG_VERSION file in your OID:
+postgres@test-rp:~/9.6/main/base$ ls -l 5137290/PG_VERSION
+-rw------- 1 postgres postgres 4 Jan 29 12:34 5137290/PG_VERSION
+
+
+******************
+PostgreSQL Issues & Questions Resolved
+***********************************
+https://lxadm.com/postgresql/
+
+https://stackoverflow.com/questions/5220344/postgresql-invalid-page-header-in-block
+
+
+****************
+Checking bloat and free space on tables & indexes
+*************************************************
+on table
+**********
+select * from pgstattuple('table_name');
+
+index_bloat
+************
+SELECT * FROM pgstatindex('idx_name');
+
+_______________________
+postgresql architecture
+--------------------------------
+https://medium.com/swlh/architecture-of-postgresql-db-d6b1ac4cc231
+
+-----------------------------------------------------------------------
+pg_stat_user_indexes
+------------------------------------
+select relname, indexrelname, idx_scan, idx_tup_read, idx_tup_fetch FROM pg_stat_user_indexes ;
+
+select relname, indexrelname, idx_blks_read, idx_blks_hit FROM pg_catalog.pg_statio_user_indexes;
+
+The pg_stat_user_indexes contains idx_scan field – information on number of times particular index has been used.
+Good point to see unused indexes.
+
+
+Thus, indexes with zero idx_scan are the main candidates for removal. Also, I’d recommend before index deletion to make sure that the 
+stats from pg_stat_user_indexes are collected over a prolonged period. Perhaps there are indexes which aren’t used often, per month, for 
+example, when doing analytics reports. Also it is possible to reset stats periodically and recheck indexes usage. In case of streaming 
+replication, it should be checked on all hosts in the cluster. For resetting stats and checking when it was last time reset use the 
+pg_stat_reset() function and pg_stat_database.stats_reset field
+
+Don’t build indexes for every columns or “popular” columns – look at real queries, explain them and if they really require an index, build it.
+
+
+-----------------------------------------------------------------------
+SELECT * FROM pg_stat_bgwriter;
+-------------------------------
+to check if the max_wal_size is properly set.
+
+SELECT checkpoints_timed, checkpoints_req, checkpoint_write_time, checkpoint_sync_time, buffers_clean FROM pg_stat_bgwriter;
+
+There are two columns: checkpoints_timed and checkpoints_req that show number of checkpoints occurred since last reset of stats. 
+General rule is very simple – checkpoints_timed value should be much higher than checkpoints_req. It’s desirable when the last 
+one (checkpoints_req) is near zero. It may be achieved by increasing max_wal_size (or checkpoint_segments) and checkpoint_timeout. 
+Good starting point is to set max_wal_size to 10GB and checkpoint_timeout = 30min. Also, checkpoint_completion_target should be configured
+in a way that will enable spread of execution of checkpoints to time that is the closest to timeout or to size of collected WAL.
+SELECT pg_stat_reset_shared ('bgwriter');
+
+
+----------------------------------------------
+checking locks
+----------------
+
+SELECT locktype, database, relation::regclass, mode, pid FROM pg_locks;
+SELECT * FROM pg_locks pl LEFT JOIN pg_stat_activity psa ON pl.pid = psa.pid;
+
+select pid, usename, pg_blocking_pids(pid) as blocked_by, query as blocked_query from pg_stat_activity;
+select pid, usename, pg_blocking_pids(pid) as blocked_by, query as blocked_query from pg_stat_activity where cardinality(pg_blocking_pids(pid)) > 0;
+
+Looking at pg_locks shows you what locks are granted and what processes are waiting for locks to be acquired. 
+A good query to start looking for lock problems:
+
+SELECT client_addr, client_port, query FROM pg_stat_activity WHERE state = 'active' AND wait_event_type = 'Lock' ORDER BY state_change;
+
+select relation::regclass, * from pg_locks where not granted;
+
+select pg_blocking_pids(pid) as blocked_by from pg_stat_activity where cardinality(pg_blocking_pids(pid)) > 0;
+
+SELECT query FROM pg_stat_activity WHERE pid IN (select unnest(pg_blocking_pids(pid)) as blocked_by from pg_stat_activity where cardinality(pg_blocking_pids(pid)) > 0);
+
+select pg_blocking_pids(27225);
+
+to show all blocked queries
+select pid, usename, pg_blocking_pids(pid) as blocked_by, query as blocked_query from pg_stat_activity where cardinality(pg_blocking_pids(pid)) > 0;
+
+**********
+to show the blocked processes on your database along with the actual query that is blocking them is:
+****************************************************************************************************
+SELECT
+activity.pid,
+activity.usename,
+activity.query,
+blocking.pid AS blocking_id,
+blocking.query AS blocking_query
+FROM pg_stat_activity AS activity
+JOIN pg_stat_activity AS blocking ON blocking.pid = ANY(pg_blocking_pids(activity.pid));
+
+************
+Change the ownership of all tables in a schema
+**********************************
+SELECT format(
+'ALTER TABLE public.%I OWNER TO user_name',
+table_name
+)
+FROM information_schema.tables
+WHERE table_schema = 'public'
+AND table_type = 'BASE TABLE' \gexec
+
+
+
+--------------------------------------------------
+Troubleshouting high cpu usage
+--------------------------------------------------
+00:23 / 01:32
+You can match a specific Postgres backend ID to a system process ID using the pg_stat_activity system table.
+
+SELECT pid, datname, usename, query FROM pg_stat_activity; 
+can be a good starting point.
+Once you know what queries are running you can investigate further (EXPLAIN/EXPLAIN ANALYZE; check the logs).
+
+SELECT max(now() - xact_start) FROM pg_stat_activity WHERE state IN ('idle in transaction', 'active');
+
+select (total_time / 1000 / 3600) as total_hours, (total_time / 1000) as total_seconds, (total_time / calls) as avg_millis, calls num_calls, query from pg_stat_statements order by 1 desc limit 10;
+
+https://severalnines.com/blog/what-check-if-postgresql-memory-utilization-high/
+-------------------------------------------------------------------------------------------------
+pg_stat_database
+----------------
+\d pg_stat_database
+
+SELECT datname, 100 * blks_hit / (blks_hit + blks_read) as cache_hit_ratio FROM pg_stat_database WHERE (blks_hit + blks_read) > 0;
+
+or summary among all databases:
+
+SELECT round(100 * sum(blks_hit) / sum(blks_hit + blks_read), 3) as cache_hit_ratio FROM pg_stat_database;
+
+Sweet spot here are values close to 100 – it means that the almost all necessary data were read from shared buffers. 
+Values near 90 show that postgres read from disk time to time. And values below 80 show that we have insufficient amount of shared buffers or physical RAM . 
+
+to check the work_mem related issue 
+SELECT datid, datname, blks_read, blks_hit, tup_returned, tup_fetched, temp_files, deadlocks FROM pg_stat_database;
+select datname, conflicts, temp_files , pg_size_pretty(temp_bytes) as temp_file_size, deadlocks, idle_in_transaction_time, sessions_abandoned, sessions_fatal, sessions_killed, stats_reset  FROM   pg_stat_database order by temp_bytes desc;
+
+
+ou can reset those statistics (as the superuser) using
+
+select pg_stat_reset();
+
+
+
+Understanding your Cache and its Hit Rate
+The typical rule for most applications is that only a fraction of its data is regularly accessed. 
+As with many other things data can tend to follow the 80/20 rule with 20% of your data accounting 
+for 80% of the reads and often times its higher than this. Postgres itself actually tracks access 
+patterns of your data and will on its own keep frequently accessed data in cache. Generally you want 
+your database to have a cache hit rate of about 99%. You can find your cache hit rate with:
+
+SELECT sum(heap_blks_read) as heap_read, sum(heap_blks_hit)  as heap_hit,
+sum(heap_blks_hit) / (sum(heap_blks_hit) + sum(heap_blks_read)) as ratio FROM pg_statio_user_tables;
+
+
+
+
+***********************************
+Ways to check if the the table exists in PostgreSQL
+**************************************
+SELECT EXISTS ( SELECT FROM pg_tables WHERE schemaname = 'public' AND tablename  = 'actor' );
+
+SELECT EXISTS ( SELECT FROM information_schema.tables WHERE table_schema LIKE 'public' AND table_type LIKE 'BASE TABLE' AND table_name = 'actor' );
+
+SELECT COUNT(table_name) FROM information_schema.tables WHERE table_schema LIKE 'public' AND table_type LIKE 'BASE TABLE' AND table_name = 'actor';
+
+SELECT EXISTS ( SELECT FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace WHERE  n.nspname = 'public' AND c.relname = 'actor' AND c.relkind = 'r' );
+
+
+--------------------------------------------------------------------------------------------------
+commit ratio 
+------------
+SELECT datname, 100 * xact_commit / (xact_commit + xact_rollback) as commit_ratio FROM pg_stat_database WHERE (xact_commit + xact_rollback) > 0;
+
+Result values may vary between 1 to 100. Values that are closer to 100 mean that you database has very few errors. In case when commit ratio is below 90, 
+a good idea is to configure proper logging and check out logs for errors, built a list of most often errors and begin to eliminate them step by step.
+
+---------------------------------------------------------------------------------------------------
+pg_stat_user_tables
+------------------
+to check which of my tables need an index
+select schemaname, relname, seq_scan, seq_tup_read, seq_tup_read / seq_scan as avg, idx_scan from pg_stat_user_tables where seq_scan > 0 order by seq_tup_read desc limit 25;
+
+As you can see, it is suggesting me to add an index to those tables since they were used recently in sequential scans. With more data and more runtime, this query will give you a good insight on how your tables are behaving.
+
+
+select relname, last_autovacuum, n_dead_tup from pg_stat_user_tables;
+
+select relname, n_live_tup, n_dead_tup from pg_stat_user_tables group by 1, 2, 3 order by 2, 3 desc;
+
+-------------------------------------------------------------------------------------------------
+pg_stat_statements
+------------------
+
+CREATE EXTENSION IF NOT EXISTS pg_stat_statements WITH SCHEMA public;
+
+SELECT * FROM pg_stat_statements LIMIT 1;
+
+With all of this information, it's easy to get a list of the most expensive queries and get to know why?
+
+select round(( 100 * total_time / sum(total_time) over ())::numeric, 2) percent, round(total_time::numeric, 2) as total, calls, round(mean_time::numeric, 2) as mean, stddev_time, substring(query, 1, 40) as query from pg_stat_statements order by total_time DESC limit 10;
+
+to know hot queries, run the following statement
+select query, calls, total_time::integer, (calls/total_time)::integer as ms_per_call, shared_blks_hit, shared_blks_read from pg_stat_statements pss order by calls desc limit 10;
+
+
+to know the slow queries
+
+select query, calls, (total_time/calls)::integer as avg_time_ms 
+from pg_stat_statements
+where calls > 1000
+order by avg_time_ms desc
+limit 100;
+
+SELECT pg_stat_statements_reset();
+
+****************
+Monitoring using pg_stat_statements:
+************************************
+SELECT  substring(query, 1, 50) AS query,
+round(total_time::numeric, 2) AS total_time, calls,
+round(mean_time::numeric, 2) AS mean,
+round((100 * total_time / sum(total_time::numeric) OVER ())::numeric, 2) AS percentage_cpu
+FROM    pg_stat_statements ORDER BY total_time DESC LIMIT 10;
+
+***************
+sql queries having high i/o activity
+************************************
+select userid::regrole, dbid, query,queryid, mean_time/1000 as mean_time_seconds 
+from pg_stat_statements order by (blk_read_time+blk_write_time) desc limit 10;
+
+************
+Top time consuming queries
+**************************
+select userid::regrole, dbid, query ,calls, total_time/1000 as total_time_seconds ,min_time/1000 as min_time_seconds,max_time/1000 as max_time_seconds,mean_time/1000 as mean_time_seconds
+from pg_stat_statements order by mean_time desc limit 10;
+
+****************
+Queries with high memory usage:
+*******************************
+select userid::regrole, dbid, queryid,query  from pg_stat_statements 
+order by (shared_blks_hit+shared_blks_dirtied) desc limit 10;
+
+SELECT pg_stat_statements_reset();
+
+***************
+Find queries running for longer than 5 minutes
+**********************************************
+SELECT
+pid,
+usename,
+pg_stat_activity.query_start,
+now() - pg_stat_activity.query_start AS query_time,
+query,
+state,
+wait_event_type,
+wait_event
+FROM pg_stat_activity
+WHERE (now() - pg_stat_activity.query_start) > interval '5 minutes';
+
+
+*********************************************
+Below query will give you the queries triggering temp files. We are ordering by tmp_blks_written here
+******************************************************************************************************
+SELECT interval '200 millisecond' * total_time AS total_exec_time, 
+total_time / calls AS avg_exec_time_ms, temp_blks_written, query AS query FROM pg_stat_statements
+WHERE temp_blks_written > 2048 ORDER BY temp_blks_written DESC LIMIT 10;
+
+
+
+*******************
+solving temp_files issues
+******************************
+https://klouddb.io/temporary-files-in-postgresql-steps-to-identify-and-fix-temp-file-issues/
+
+Memory is faster than disk.
+Anything that can be done only using memory will work faster instead of using the hard disks to store temporary content.
+
+SELECT interval '925 millisecond' * total_time AS total_exec_time, 
+total_time / calls AS avg_exec_time_ms,
+temp_blks_written,
+query AS query
+FROM pg_stat_statements
+WHERE temp_blks_written > 0
+ORDER BY temp_blks_written DESC
+LIMIT 5;
+
+
+Now how can we resolve this issue?
+First and foremost, set temp_file_limit. By default, this has a value of -1 which means there is no limit on the size of the temp file. 
+Let’s say you set it to 10GB, any session using temp files more than 10GB will be canceled. This is a good control to have to limit the usage and thereby avoid major issues
+Tune queries: Ensure that proper indices are being used, rewrite the queries to tune them as needed
+Tuning work_mem: This is a tricky operation and could cause adverse effects. If you change work_mem globally it could increase overall memory usage. 
+Be very cautious and test it thoroughly before making changes in production. Most of the time it is better to change this locally to apply to a specific query
+Cluster level :
+ALTER SYSTEM SET work_mem TO ‘128MB';
+Database level :
+ALTER DATABASE database_name SET work_mem TO ‘128MB';
+User level :
+ALTER ROLE user_name SET work_mem TO '64MB';
+Transaction level:
+ BEGIN;
+SET LOCAL work_mem TO '64MB';
+Set statement_timeout to control long-running queries
+Please set statement_timeout to an optimal value. If there is a huge query doing sorts, this config should help in preventing the long-running queries
+
+
+****************************
+To flush data of a particular database:( feature  available from postgres 12 onwards only)
+******************************************************************************************
+select pg_stat_statements.dbid,datname,count(*) from pg_stat_statements join 
+pg_database on pg_stat_statements.dbid=pg_database.oid  group by  pg_stat_statements.dbid,datname;
+
+
+ dbid  | datname  | count
+-------+----------+-------
+ 15846 | edb      |   3
+ 15845 | postgres |    18
+(2 rows)
+
+
+postgres# select pg_stat_statements_reset(0, 15845, 0);
+pg_stat_statements_reset
+--------------------------
+
+*****************
+Run the query from the os and redirect the output into the file 
+***************************************************************
+psql -h db_hostname -p port -d db_name -U user_name -f queryfile.sql  -o finaloutput.txt
+
+
+
+
+------------------------------------------------------------------------------------------------
+Index Maintenance
+-----------------
+Here's a sample query to pull the number of rows, indexes, and some info about those indexes for each table.
+
+SELECT pg_class.relname,
+pg_size_pretty(pg_class.reltuples::bigint)            AS rows_in_bytes,
+pg_class.reltuples                                    AS num_rows,
+COUNT(*)                                              AS total_indexes,
+COUNT(*) FILTER ( WHERE indisunique)                  AS unique_indexes,
+COUNT(*) FILTER ( WHERE indnatts = 1 )                AS single_column_indexes,
+COUNT(*) FILTER ( WHERE indnatts IS DISTINCT FROM 1 ) AS multi_column_indexes
+FROM pg_namespace
+LEFT JOIN pg_class ON pg_namespace.oid = pg_class.relnamespace
+LEFT JOIN pg_index ON pg_class.oid = pg_index.indrelid
+WHERE pg_namespace.nspname = 'public' AND pg_class.relkind = 'r'
+GROUP BY pg_class.relname, pg_class.reltuples ORDER BY pg_class.reltuples DESC;
+
+---------
+Table & index sizes along which indexes are being scanned and how many tuples are fetched. See Disk Usage for another view that includes both table and index sizes.
+
+SELECT t.schemaname, t.tablename,
+c.reltuples::bigint                            AS num_rows,
+pg_size_pretty(pg_relation_size(c.oid))        AS table_size,
+psai.indexrelname                              AS index_name,
+pg_size_pretty(pg_relation_size(i.indexrelid)) AS index_size,
+CASE WHEN i.indisunique THEN 'Y' ELSE 'N' END  AS "unique",
+psai.idx_scan                                  AS number_of_scans,
+psai.idx_tup_read                              AS tuples_read,
+psai.idx_tup_fetch                             AS tuples_fetched
+FROM pg_tables t
+LEFT JOIN pg_class c ON t.tablename = c.relname
+LEFT JOIN pg_index i ON c.oid = i.indrelid
+LEFT JOIN pg_stat_all_indexes psai ON i.indexrelid = psai.indexrelid
+WHERE t.schemaname NOT IN ('pg_catalog', 'information_schema') ORDER BY 1, 2;
+
+-------------
+Finds multiple indexes that have the same set of columns, same opclass, expression and predicate -- which make them equivalent. Usually it's safe to drop one of them, but I give no guarantees. :)
+
+SELECT pg_size_pretty(sum(pg_relation_size(idx))::bigint) as size,
+(array_agg(idx))[1] as idx1, (array_agg(idx))[2] as idx2,
+(array_agg(idx))[3] as idx3, (array_agg(idx))[4] as idx4
+FROM (
+SELECT indexrelid::regclass as idx, (indrelid::text ||E'\n'|| indclass::text ||E'\n'|| indkey::text ||E'\n'||
+coalesce(indexprs::text,'')||E'\n' || coalesce(indpred::text,'')) as key
+FROM pg_index) sub
+GROUP BY key HAVING count(*)>1
+ORDER BY sum(pg_relation_size(idx)) DESC;
+
+*********************************
+finding unused indexes(2 queries)
+*********************************
+SELECT pg_stat_user_indexes.schemaname || '.' || pg_stat_user_indexes.relname tablemane
+, pg_stat_user_indexes.indexrelname
+, pg_stat_user_indexes.idx_scan
+, psut.write_activity
+, psut.seq_scan
+, psut.n_live_tup
+, pg_size_pretty (pg_relation_size (pg_index.indexrelid::regclass)) as size
+from pg_stat_user_indexes
+join pg_index
+ON pg_stat_user_indexes.indexrelid = pg_index.indexrelid
+join (select pg_stat_user_tables.relid
+, pg_stat_user_tables.seq_scan
+, pg_stat_user_tables.n_live_tup
+, ( coalesce (pg_stat_user_tables.n_tup_ins, 0)
++ coalesce (pg_stat_user_tables.n_tup_upd, 0)
+- coalesce (pg_stat_user_tables.n_tup_hot_upd, 0)
++ coalesce (pg_stat_user_tables.n_tup_del, 0)
+) as write_activity
+from pg_stat_user_tables) psut
+on pg_stat_user_indexes.relid = psut.relid
+where pg_index.indisunique is false
+and pg_stat_user_indexes.idx_scan::float / (psut.write_activity + 1)::float < 0.01
+and psut.write_activity > case when pg_is_in_recovery () then -1 else 10000 end
+order by 4 desc, 1, 2;
+
+**************
+Index fragmentation postgresql
+******************************
+SELECT i.indexrelid::regclass,
+s.leaf_fragmentation
+FROM pg_index AS i
+JOIN pg_class AS t ON i.indexrelid = t.oid
+JOIN pg_opclass AS opc ON i.indclass[0] = opc.oid
+JOIN pg_am ON opc.opcmethod = pg_am.oid
+CROSS JOIN LATERAL pgstatindex(i.indexrelid) AS s
+WHERE t.relkind = 'i'
+AND pg_am.amname = 'btree';
+
+******
+WITH table_scans as (
+SELECT relid,
+tables.idx_scan + tables.seq_scan as all_scans,
+( tables.n_tup_ins + tables.n_tup_upd + tables.n_tup_del ) as writes,
+pg_relation_size(relid) as table_size
+FROM pg_stat_user_tables as tables
+),
+all_writes as (
+SELECT sum(writes) as total_writes
+FROM table_scans
+),
+indexes as (
+SELECT idx_stat.relid, idx_stat.indexrelid,
+idx_stat.schemaname, idx_stat.relname as tablename,
+idx_stat.indexrelname as indexname,
+idx_stat.idx_scan,
+pg_relation_size(idx_stat.indexrelid) as index_bytes,
+indexdef ~* 'USING btree' AS idx_is_btree
+FROM pg_stat_user_indexes as idx_stat
+JOIN pg_index
+USING (indexrelid)
+JOIN pg_indexes as indexes
+ON idx_stat.schemaname = indexes.schemaname
+AND idx_stat.relname = indexes.tablename
+AND idx_stat.indexrelname = indexes.indexname
+WHERE pg_index.indisunique = FALSE
+),
+index_ratios AS (
+SELECT schemaname, tablename, indexname,
+idx_scan, all_scans,
+round(( CASE WHEN all_scans = 0 THEN 0.0::NUMERIC
+ELSE idx_scan::NUMERIC/all_scans * 100 END),2) as index_scan_pct,
+writes,
+round((CASE WHEN writes = 0 THEN idx_scan::NUMERIC ELSE idx_scan::NUMERIC/writes END),2)
+as scans_per_write,
+pg_size_pretty(index_bytes) as index_size,
+pg_size_pretty(table_size) as table_size,
+idx_is_btree, index_bytes
+FROM indexes
+JOIN table_scans
+USING (relid)
+),
+index_groups AS (
+SELECT 'Never Used Indexes' as reason, *, 1 as grp
+FROM index_ratios
+WHERE
+idx_scan = 0
+and idx_is_btree
+UNION ALL
+SELECT 'Low Scans, High Writes' as reason, *, 2 as grp
+FROM index_ratios
+WHERE
+scans_per_write <= 1
+and index_scan_pct < 10
+and idx_scan > 0
+and writes > 100
+and idx_is_btree
+UNION ALL
+SELECT 'Seldom Used Large Indexes' as reason, *, 3 as grp
+FROM index_ratios
+WHERE
+index_scan_pct < 5
+and scans_per_write > 1
+and idx_scan > 0
+and idx_is_btree
+and index_bytes > 100000000
+UNION ALL
+SELECT 'High-Write Large Non-Btree' as reason, index_ratios.*, 4 as grp 
+FROM index_ratios, all_writes
+WHERE
+( writes::NUMERIC / ( total_writes + 1 ) ) > 0.02
+AND NOT idx_is_btree
+AND index_bytes > 100000000
+ORDER BY grp, index_bytes DESC )
+SELECT reason, schemaname, tablename, indexname,
+index_scan_pct, scans_per_write, index_size, table_size
+FROM index_groups;
+
+
+**********************
+Installing docker & kubernetes on ubuntu
+**********************************
+https://phoenixnap.com/kb/install-kubernetes-on-ubuntu#:~:text=Step%203%3A%20Kubernetes%20Installation%20Tools%201%201.%20Install,to%20complete.%202%202.%20Verify%20the%20installation%20with%3A
+
+https://kubernetes.io/docs/setup/
+--------------------------------------------------------------------------------
+VACUUM on update_heavy tables
+.............................
+
+ALTER TABLE table_name SET (autovacuum_vacuum_scale_factor = 0, autovacuum_vacuum_threshold = 1000);
+
+following query shows free space on the table for future inserts
+
+create extension pgfreespacemap;
+
+select pg_size_pretty(sum(avail)) from pg_freespace('mytable'::regclass);
+
+SELECT datname, age(datfrozenxid) FROM pg_database ORDER BY age(datfrozenxid) desc limit 20;
+When the age of a database reaches 2 billion transaction IDs, transaction ID (XID) wraparound occurs 
+and the database becomes read-only. You can use this query to produce a metric and run a few times a day.
+By default, autovacuum is set to keep the age of transactions to no more than 200,000,000 
+(autovacuum_freeze_max_age).
+
+
+ALTER USER test set work_mem='4GB';
+
+VACUUM FULL VERBOSE postcards_vacuum;
+
+
+VACUUM (VERBOSE, ANALYZE)
+
+VACUUM FULL (VERBOSE, ANALYZE);
+
+REINDEX DATABASE database_name;
+
+REINDEX SCHEMA schema_name;
+
+ALTER ROLE user_name SET work_mem TO '64MB';
+
+SELECT pg_size_pretty(pg_database_size('db_employee'));
+
+SELECT pg_size_pretty(pg_relation_size('Employee_table'));
+
+SELECT pg_size_pretty(pg_indexes_size('index_empid'));
+
+
+**********************
+Setting up patroni to manage postgres clusters
+***********************************
+https://postgres.docs.pivotal.io/12-4/bp-patroni-setup.html#:~:text=Configuring%20Patroni%201%20Log%20in%20to%20the%20first,and%20third%20nodes%2C%20with%20the%20following%20differences%3A%20
+
+
+
+***********************
+Maintenance with pg_cron
+************************
+https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/PostgreSQL_pg_cron.html
+
+https://aws.amazon.com/blogs/database/schedule-jobs-with-pg_cron-on-your-amazon-rds-for-postgresql-or-amazon-aurora-for-postgresql-databases/
+
+
+*********************
+duplicate rows from the table
+***********************
+https://www.postgresqltutorial.com/postgresql-tutorial/how-to-delete-duplicate-rows-in-postgresql/
+***************************
+CASE Function
+***********
+https://www.postgresqltutorial.com/postgresql-tutorial/postgresql-case/
+
+***********
+Full difference between PostgreSQL AND MSSQL By EDB
+************************************
+https://www.enterprisedb.com/blog/microsoft-sql-server-mssql-vs-postgresql-comparison-details-what-differences
+
+***************
+"could not send data to client" or "could not receive data from client"
+**************************
+https://repost.aws/knowledge-center/rds-aurora-postgresql-connection-errors
+
+
+
+
+
+****************************************************************************************************************************
+SQL SERVER
+*************************************************************************
+log reading from MS SQL MANAGEMENT STUDIO 
+
+sp_readerrorlog
+
+
+
+**********
+checking memory usage
+*********8
+SELECT [name], [value], [value_in_use]
+FROM sys.configurations
+WHERE [name] = 'max server memory (MB)' OR [name] = 'min server memory (MB)';
+
+****memory configuration
+sp_configure 'show advanced options', 1;
+GO
+RECONFIGURE;
+GO
+sp_configure 'max server memory', 12288;
+GO
+RECONFIGURE;
+GO
+
+*********
+checking the database size
+***************************
+SELECT name, size, size * 8/1024 'Size (MB)', max_size FROM sys.master_files;
+
+
+or
+
+
+EXEC sp_helpdb;
+
+or 
+
+sp_spaceused
+
+SELECT name, database_id, create_date  FROM sys.databases;
+
+
+*******************
+SQL Query to Check Number of Connections on Database
+***********************************************
+SELECT DB_NAME(dbid) as DBName,
+COUNT(dbid) as NumberOfConnections      
+FROM sys.sysprocesses
+WHERE dbid > 0
+GROUP BY dbid, loginame
+
+Query 2:
+
+select a.dbid,b.name, count(a.dbid) as TotalConnections
+from sys.sysprocesses a
+inner join sys.databases b on a.dbid = b.database_id
+group by a.dbid, b.name
+
+
+
+*********
+Checking index fragmentation
+**************
+SELECT S.name as 'Schema',
+T.name as 'Table',
+I.name as 'Index',
+DDIPS.avg_fragmentation_in_percent,
+DDIPS.page_count
+FROM sys.dm_db_index_physical_stats (DB_ID(), NULL, NULL, NULL, NULL) AS DDIPS
+INNER JOIN sys.tables T on T.object_id = DDIPS.object_id
+INNER JOIN sys.schemas S on T.schema_id = S.schema_id
+INNER JOIN sys.indexes I ON I.object_id = DDIPS.object_id
+AND DDIPS.index_id = I.index_id
+WHERE DDIPS.database_id = DB_ID()
+and I.name is not null
+AND DDIPS.avg_fragmentation_in_percent > 0
+ORDER BY DDIPS.avg_fragmentation_in_percent desc
+
+*********************
+It sounds like blocking is taking place on the server for it to be running so long. Please exec the below to check:
+
+USE master
+GO
+SELECT *
+FROM sys.dm_exec_requests
+WHERE blocking_session_id <> 0;
+GO
+
+USE master
+GO
+SELECT session_id, wait_duration_ms, wait_type, blocking_session_id
+FROM sys.dm_os_waiting_tasks
+WHERE blocking_session_id <> 0
+GO
+
+
+***
+REBUILD INDEX
+*********************
+***REBUILD Index can be set online or offline using the below SQL commands:
+--Basic Rebuild Command
+ALTER INDEX Index_Name ON Table_Name REBUILD
+ 
+--REBUILD Index with ONLINE OPTION
+ALTER INDEX Index_Name ON Table_Name REBUILD WITH(ONLINE=ON) | WITH(ONLINE=ON)
+
+***EBUILD clustered index over the table affects other indexes of the table as well because the 
+REBUILD clustered index rebuilds the non-clustered index of the table as well. Perform rebuild 
+operation on all indexes of the table or database together; a user can use DBCC DBREINDEX() command
+
+DBCC DBREINDEX ('DatabaseName', 'TableName');
+
+*********
+REORGANIZED INDEX
+******
+ALTER INDEX IX_OrderTracking_SalesOrderID ON Sales.OrderTracking REORGANIZE
+
+To perform the REORGANIZE index operation on all indexes of the table or database together,
+the user can use the DBCC INDEXDEFRAG() command:
+
+DBCC INDEXDEFRAG('DatabaseName', 'TableName');
+
+Usual determination of the use of the equation :
+
+When the Fragmentation percentage is between 15-30: REORGANIZE
+When the Fragmentation is greater than 30: REBUILD
+
+
+
+*************
+the last time the ms sql server was restarted
+***************************************
+SELECT create_date FROM sys.databases WHERE name = 'tempdb'
+
+
+
+
+****************************
+query to get connection and their state
+**********
+exec sp_who
+
+Or 
+
+exec sp_who2
+
+*********************
+Throubleshooting blocking queries\
+********************************
+It sounds like blocking is taking place on the server for it to be running so long. Please exec the below to check:
+
+USE master
+GO
+SELECT *
+FROM sys.dm_exec_requests
+WHERE blocking_session_id <> 0;
+GO
+
+USE master
+GO
+SELECT session_id, wait_duration_ms, wait_type, blocking_session_id
+FROM sys.dm_os_waiting_tasks
+WHERE blocking_session_id <> 0
+GO
+
+
+
+
+*********************************
+to find the SQL associated with the SPID
+**
+SELECT   SPID           = er.session_id
+        ,STATUS         = ses.STATUS
+        ,[Login]        = ses.login_name
+        ,Host           = ses.host_name
+        ,BlkBy          = er.blocking_session_id
+        ,DBName         = DB_Name(er.database_id)
+        ,CommandType    = er.command
+        ,ObjectName     = OBJECT_NAME(st.objectid)
+        ,CPUTime        = er.cpu_time
+        ,StartTime      = er.start_time
+        ,TimeElapsed    = CAST(GETDATE() - er.start_time AS TIME)
+        ,SQLStatement   = st.text
+FROM    sys.dm_exec_requests er
+    OUTER APPLY sys.dm_exec_sql_text(er.sql_handle) st
+    LEFT JOIN sys.dm_exec_sessions ses
+        ON ses.session_id = er.session_id
+    LEFT JOIN sys.dm_exec_connections con
+        ON con.session_id = ses.session_id
+WHERE   st.text IS NOT NULL
+
+
+
+Columns
+spid - unique session ID
+status - process status
+loginname - login name associated with the session. You can use ti to identify application user
+hostname - host name associated with the session. You can use ti to identify application user
+blk - session ID of the blocking process (spid is blocked by blk)
+dbname - database used by process
+
+**************
+top 10 worst queries
+******************
+-- Worst performing CPU bound queries
+
+SELECT TOP 10
+st.text,
+qp.query_plan,
+qs.*
+FROM sys.dm_exec_query_stats qs
+CROSS APPLY sys.dm_exec_sql_text(qs.plan_handle) st
+CROSS APPLY sys.dm_exec_query_plan(qs.plan_handle) qp
+ORDER BY total_worker_time DESC
+GO
+
+
+**************
+Shrink a database
+*****************
+Copy and paste the following example into the query window and select Execute. This example uses DBCC SHRINKDATABASE 
+to decrease the size of the data and log files in the UserDB database, and to allow for 10 percent free space in the database
+
+https://support.huaweicloud.com/intl/en-us/bestpractice-rds/rds_04_0022.html
+
+
+DBCC SHRINKDATABASE (UserDB, 10);
+GO
+
+-- Azure Synapse Analytics
+
+DBCC SHRINKDATABASE   
+( database_name   
+     [ , target_percent ]   
+)  
+[ WITH NO_INFOMSGS ]
+
+
+******
+kill sleeping sessions
+******
+
+Here is the script to kill all inactive sessions. People those who usually ask for the script to kill sleeping sessions from sp_who2 can also use this script.
+
+DECLARE @user_spid INT
+DECLARE CurSPID CURSOR FAST_FORWARD
+FOR
+SELECT SPID
+FROM master.dbo.sysprocesses (NOLOCK)
+WHERE spid>50 -- avoid system threads
+AND status='sleeping' -- only sleeping threads
+AND DATEDIFF(HOUR,last_batch,GETDATE())>=24 -- thread sleeping for 24 hours
+AND spid<>@@spid -- ignore current spid
+OPEN CurSPID
+FETCH NEXT FROM CurSPID INTO @user_spid
+WHILE (@@FETCH_STATUS=0)
+BEGIN
+PRINT 'Killing '+CONVERT(VARCHAR,@user_spid)
+EXEC('KILL '+@user_spid)
+FETCH NEXT FROM CurSPID INTO @user_spid
+END
+CLOSE CurSPID
+DEALLOCATE CurSPID
+GO
+
+*** Kill spid (exemple "KILL 12"
+
+-- How to kill multiple sessions
+SELECT 'KILL ' + CAST(session_id as varchar(100)) AS Sessions_to_kill
+FROM sys.dm_exec_requests where session_id in (54,57,58)
+
+
+*********
+ALTER DATABASE YourDBName 
+SET AUTO_CREATE_STATISTICS ON
+
+**** EXEC sp_updatestats;  
+
+###############
+Best practice sql server configuration
+#########################################
+
+https://urldefense.com/v3/__https://aws.amazon.com/blogs/database/best-practices-for-configuring-performance-parameters-for-amazon-rds-for-sql-server/__;!!H9JxH-x44KF8!vMPourC1taBc_xCa7oFn_DTh-Hn-AZbHYzjomHc-mLGjSEjQHfKP19aII6UQuyj2KjRMEBprn9Rh0qqxQ2Dp4eXbXAbuLb8$
+https://stribny.name/blog/ansible-postgresql/#:~:text=Finally%2C%20we%20make%20sure%20that%20PostgreSQL,tasks%20to%20invoke%20a%20database%20restart.&text=Finally%2C%20we%20make%20sure,invoke%20a%20database%20restart.&text=make%20sure%20that%20PostgreSQL,tasks%20to%20invoke%20a
+
+
+**********************
+Maximum server memory
+**********************
+SELECT total_physical_memory_kb / 1024 AS MemoryMb 
+FROM sys.dm_os_sys_memory
+
+max_server_memory = total_RAM – (memory_for_the_OS + MTL)
+
+max_server_memory = total_RAM – (1 GB for the OS + memory_basis_amount_of_RAM_on_the_server)
+
+For example, if a server has 256 GB of RAM, the calculation will be:
+
+1 GB for the OS
+Up to 16 GB RAM: 16/4 = 4 GB
+Remaining RAM above 16 GB: (256-16)/8 = 30
+Total RAM to leave: 1 + 4 + 30 = 35 GB
+max_server_memory: 256 – 35 = 221 GB
+
+Note 1: Because all the workloads have their own uniqueness, post the initial configuration you should always
+monitor the memory for the SQL Server and the memory available for the Operating System to ensure that you have not left too little or too much memory outside the buffer pool. 
+Too less will cause Operating System to starve and cause system wide issues, too much will cause underutilization of the available resources.
+
+Note 2: Some of the exceptions to the above method of calculation will be t2/t3 kind of lower sized instances, be cautious when configuring max server memory on the same.
+
+After initial configuration, monitor the freeable memory over a typical workload duration to determine if you need to increase or decrease the memory allocated to SQL Server.
+
+When using SSIS, SSAS, or SSRS, you should also consider the memory usage by those components when configuring max server memory in SQL Server.
+
+You can configure the value under a custom parameter group. To check the current value, use the below query:
+
+# sp_configure 'max_server_memory'
+
+
+*****************************
+Maximum degree of parallelism
+*****************************
+In an OLTP environment, with high core, hyperthreaded machines being a norm these days, you should pay special attention to max degree of parallelism. 
+A maximum degree of parallelism controls the number of processors used to run a single statement that has a parallel plan for running. The default value is set to 0, 
+which allows you to use the maximum available processors on the machine.
+
+With SQL Server 2016 and above, if more than eight physical cores per NUMA node or socket are detected
+at startup, soft NUMA nodes are created automatically. Starting with SQL Server 2016 (13.x), use the following guidelines when you configure the maximum degree of parallelism server value:
+Single NUMA node: < = 8 logical processors, keep MAXDOP <= actual number of cores
+Single NUMA node: > 8 logical processors, keep MAXDOP = 8
+Multiple NUMA nodes: < =16 logical processors, keep MAXDOP <= actual number of cores
+Multiple NUMA nodes: > 16 logical processors, keep MAXDOP = 16 (SQL Server 2016 and above), keep MAXDOP = 8 (prior to SQL Server 2016)
+
+To gather the current NUMA configuration for SQL Server 2016 and higher, run the following query:
+
+select
+@@SERVERNAME,
+SERVERPROPERTY('ComputerNamePhysicalNetBIOS'),
+cpu_count,  /*the number of logical CPUs on the system*/
+hyperthread_ratio, /*the ratio of the number of logical or physical cores that are exposed by one physical processor package*/
+softnuma_configuration, /* 0 = OFF indicates hardware default, 1 = Automated soft-NUMA, 2 = Manual soft-NUMA via registry*/
+softnuma_configuration_desc, /*OFF = Soft-NUMA feature is OFF, ON = SQL Server automatically determines the NUMA node sizes for Soft-NUMA, MANUAL = Manually configured soft-NUMA */
+socket_count, /*number of processor sockets available on the system*/
+numa_node_count /*the number of numa nodes available on the system. This column includes physical numa nodes as well as soft numa nodes*/
+from 
+sys.dm_os_sys_info 
+
+**** sp_configure 'max_degree_of_parallelism'
+
+
+*******************************
+Cost threshold for parallelism
+*******************************
+The cost threshold for parallelism parameter determines the times at which SQL Server creates and 
+runs parallel plans for queries. A parallel plan for a query only runs when the estimated cost of the 
+serial plan for that query exceeds the value specified in the cost threshold for parallelism.
+You can configure the cost threshold for parallelism value under a custom parameter group. In the following 
+screenshot, I change the value to 50 for 64 core environment.
+
+# sp_configure 'cost_threshold_for_parallelism'
+
+When to change the configuration
+On modern machines, 50 is an acceptable value to start with.
+
+*********************
+stored procedure to view the contents of the error log from MS SQL Management studio.
+*******************************************************************
+
+sp_readerrorlog
+
+
+*****************************
+Optimize for ad hoc workloads
+******************************
+To improve plan cache efficiency, configure "optimize for ad hoc workloads". 
+This works by only caching a compiled plan stub instead of a complete run plan on the first time 
+you run an ad hoc query, thereby saving space in the plan cache. If the ad hoc batch runs again, 
+the compile plan stub helps recognize the same and replaces the compiled plan stub with the full 
+compiled plan in the plan cache.
+
+To find the number of single-use cached plans, enter the following query:
+
+SELECT objtype,
+cacheobjtype, 
+SUM(refcounts),
+AVG(usecounts), 
+SUM(CAST(size_in_bytes AS bigint))/1024/1024 AS Size_MB
+FROM sys.dm_exec_cached_plans
+WHERE usecounts = 1 AND objtype = 'Adhoc'
+GROUP BY cacheobjtype, objtype
+
+You can check the size of a stub and the plan of a query by running a query at least twice and 
+checking the size in plan cache using a query similar to the following query:
+
+select * from sys.dm_exec_cached_plans
+cross apply sys.dm_exec_sql_text(plan_handle)
+where text like '%<text in your query>%'
+
+You can configure the optimize_for_ad_hoc_workloads value under a custom parameter group. 
+In the following screenshot, I set the value to 1.
+
+You can change this value in custom parameter group. To check the current value, run the below query:
+
+# sp_configure 'optimize for ad hoc workloads'
+If your workload has many single-use ad hoc queries, it’s recommended to enable this parameter.
+
+
+********************
+Configuring Tempdb
+*******************
+On a busy database server that frequently uses tempdb, you may notice severe blocking when the server is experiencing a heavy load. You may sometimes notice the tasks are waiting for tempdb resources. 
+The wait resources are pages in tempdb. These pages might be of the format 2:x:x, and therefore on the PFS and SGAM pages in tempdb.
+
+To improve the concurrency of tempdb, increase the number of data files to maximize disk bandwidth and reduce contention in allocation structures. You can start with the following guidelines:
+
+If the number of logical processors <=8, use the same number of data files as logical processors
+If the number of logical processors > 8, use eight data files
+On RDS for SQL Server 2017 or below we have a single tempdb file by default.
+
+You can use sp_helpdb 'tempdb' to verify the changes.
+
+Note: For Multi AZ setup, please remember to make this change on the DR as well.
+
+When you create multiple files, you may still want to maintain the total size of the tempdb equal to 
+what it was with a single file. In such cases, you need to shrink a tempdb file to achieve the desired size. To shrink the tempdev file, enter the following code:
+
+exec msdb..rds_shrink_tempdbfile @temp_filename='tempdev', @target_size =10; 
+To shrink a templog file, enter the following code:
+
+exec msdb..rds_shrink_tempdbfile @temp_filename='templog', @target_size =10;
+Following the tempdev shrink command, you can alter the tempdev file and set the size as per your requirement.
+
+When initial pages are created for a table or index, the MIXED_PAGE_ALLOCATION setting controls 
+whether mixed extent can be used for a database or not. When set to OFF it forces page allocations 
+on uniform extents instead of mixed extents, reducing contention on the SGAM page.
+
+Starting with SQL Server 2016 (13.x) this behavior is controlled by the SET MIXED_PAGE_ALLOCATION 
+option of ALTER DATABASE. For example, use the following query to turn it off:
+
+
+
+**********************
+Enabling autogrowth
+**********************
+alter database <database name> MODIFY FILEGROUP [PRIMARY] AUTOGROW_ALL_FILES
+
+AUTOGROW_ALL_FILES determines that, when a file needs to grow in a file group, all the files in the file group grow with the same increment size.
+
+Starting with SQL Server 2016 (13.x), this behavior is controlled by the AUTOGROW_SINGLE_FILE and AUTOGROW_ALL_FILES option of ALTER DATABASE, you may use the following query to enable AUTOGROW_ALL_FILES:
+
+alter database <database name> set MIXED_PAGE_ALLOCATION OFF
+
+When wait resources are like 2:x:x, you want to revisit the tempdb configuration.
+
+To check the wait resource in tempdb, use the following query:
+
+# select  db_name(2) as db,* from master..sysprocesses where waitresource like '2%'
+
+
+*********************************
+Tracking deadlocks is the easier of the two:
+*********************************
+By default, deadlocks are not written in the error log. You can cause SQL to write deadlocks to the error log with trace flags 1204 and 3605.
+
+Write deadlock info to the SQL Server error log: DBCC TRACEON(-1, 1204, 3605)
+
+Turn it off: DBCC TRACEOFF(-1, 1204, 3605)
+
+See "Troubleshooting Deadlocks" for a discussion of trace flag 1204 and the output you will get when it is turned on. https://msdn.microsoft.com/en-us/library/ms178104.aspx
+You can query the system_health Extended Event session. Even though Extended Events are not available within AWS RDS, system_health is still there. This query works:
+
+WITH fxd
+AS (SELECT CAST(fx.event_data AS XML) AS Event_Data
+    FROM sys.fn_xe_file_target_read_file(N'system_health*.xel', NULL, NULL, NULL) AS fx )
+SELECT dl.deadlockgraph
+FROM
+(
+    SELECT dl.query('.') AS deadlockgraph
+    FROM fxd
+        CROSS APPLY event_data.nodes('(/event/data/value/deadlock)') AS d(dl)
+) AS dl;
+
+***********************
+Updating statistics
+***********************
+If the optimizer doesn’t have up-to-date information about the distribution of key values (statistics)
+ of table columns, it can’t generate optimal run plans. Update the statistics for all the tables 
+regularly; the frequency of the update statistics depends on the rate at which the database handles DML operations.
+
+For more information, see UPDATE STATISTICS. Please note that the update statistics works at one table
+at a time. sp_updatestats which is a database level command is not available in RDS. You may either 
+write a cursor using update statistics to update statistics on all the objects in a database or you 
+may build a wrapper around sp_updatestats.
+
+Please refer the below workaround to use a wrapper around sp_updatestats:
+
+create procedure myRDS_updatestats
+with execute as ‘dbo’
+as
+exec sp_updatestats
+go
+
+Now, grant we will grant execute on our newly created procedure to an user
+
+grant execute on myRDS_updatestats to <user>
+go
+
+
+#####
+sql server troubleshooting steps for optimization
+###################################################
+https://learn.microsoft.com/en-us/sql/linux/sql-server-linux-setup-tools?view=sql-server-ver15
+https://aws.amazon.com/blogs/database/best-practices-for-configuring-performance-parameters-for-amazon-rds-for-sql-server/
+idle sessions (sleeping processes)
+index fragmentation
+Maximum server memory
+Maximum degree of parallelism
+Cost threshold for parallelism
+Optimize for ad hoc workloads
+Configuring Tempdb 
+Enabling autogrowth
+Updating statistics
+***********************
+deadlocks
+blocking
+missing and unused indexes
+I/O bottlenecks
+poor query plans
+statistics
+wait stats
+fragmentation
+
+*****************
+dealing with parameter group on sql server
+**********************************
+https://www.mssqltips.com/sqlservertip/5329/setting-sql-server-configuration-options-with-aws-rds-parameter-groups/
+
+
+dealing with RDS SQL SERVER read-replicas
+********************************
+https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/SQLServer.ReadReplicas.html
+
+If replication lag is too long, you can use the following query to get information about the lag.
+
+SELECT AR.replica_server_name
+     , DB_NAME (ARS.database_id) 'database_name'
+     , AR.availability_mode_desc
+     , ARS.synchronization_health_desc
+     , ARS.last_hardened_lsn
+     , ARS.last_redone_lsn
+     , ARS.secondary_lag_seconds
+FROM sys.dm_hadr_database_replica_states ARS
+INNER JOIN sys.availability_replicas AR ON ARS.replica_id = AR.replica_id
+--WHERE DB_NAME(ARS.database_id) = 'database_name'
+ORDER BY AR.replica_server_name;
+
+Installing Ansible AWX
+*****************
+https://developer.ibm.com/articles/automation-using-ansible-awx-gui/
+
+Postgres important links     https://www.databasejournal.com/ms-sql/
+**************************************************
+https://www.mydatahack.com/top-10-configuration-parameters-to-tune-postgresql-for-better-performance/
+https://stackoverflow.com/questions/60409585/how-to-upgrade-postgresql-database-from-10-to-12-without-losing-data-for-openpro
+https://www.solutionstreet.com/blog/2015/03/05/mysql-postgresql-migration/#.YzW_wTTMJ-M
+https://pearldbservice.blogspot.com/2020/07/postgresql-migration-using-mtk.html
+https://www.linkedin.com/pulse/postgresql-migration-using-edb-mtk-ajithkumar-s
+https://www.cybertec-postgresql.com/en/services/migration-to-postgresql/migrating-from-mysql-mariadb-to-postgresql/
+https://www.cybertec-postgresql.com/en/services/migration-to-postgresql/migration-from-oracle-to-postgresql/
+https://app.na4.teamsupport.com/
+https://severalnines.com/blog/postgresql-deployment-and-maintenance-ansible
+https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/rds-metrics.html
+https://dbsguru.com/install-and-configure-pgbadger-in-postgresql-part-i/
+https://dbsguru.com/install-and-configure-pgbadger-in-postgresql-part-ii/
+https://guillaume-martin.github.io/rds-postgresql-daily-reports.html
+https://github.com/darold/pgbadger/#POSTGRESQL-CONFIGURATION
+https://www.cybertec-postgresql.com/en/postgresql-understanding-deadlocks/
+https://www.databasejournal.com/ms-sql/daily-dba-monitoring-tasks/
+https://www.techtarget.com/searchdatamanagement/tip/Cloud-DBA-How-cloud-changes-database-administrators-role
+https://stackoverflow.com/questions/66805141/pg-repack-version-mismatch-after-maintenance-on-cloud-sql-gcp
+https://github.com/reorg/pg_repack/issues/265
+https://ronggeng.net/2019/03/using-pg_repack-to-rebuild-postgresql-database-objects-online/
+https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Appendix.PostgreSQL.CommonDBATasks.Extensions.html
+https://github.com/timescale/pg_prometheus/issues/26
+https://stackoverflow.com/questions/21146279/error-the-pgxs-makefile-cannot-be-found-when-installing-postgis-on-debian
+https://www.enterprisedb.com/docs/pgbouncer/latest/02_configuration_and_usage/
+https://stackoverflow.com/questions/962361/how-can-i-speed-up-update-replace-operations-in-postgresql
+https://adequatesource.com/pg-cron-aws-rds/#:~:text=Install%20pg_cron%20on%20AWS%20RDS%201%20Upgrading%20to,Crash%20course%20in%20pg_cron%20...%206%20Disclaimer%20
+https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/PostgreSQL_pg_cron.html
+https://stackoverflow.com/questions/31841269/postgresql-database-design-for-ecommerce   (database design template)
+https://www.arcion.io/learn/postgresql-streaming-replication   (streaming replication set up from A to Z)
+https://aws.amazon.com/blogs/database/tune-sorting-operations-in-postgresql-with-work_mem/    (Investigate and resolve issues with temp_files in PostgreSQL)
+https://www.enterprisedb.com/docs/efm/latest/efm_quick_start/#:~:text=1%20Create%20working%20configuration%20files.%20...%202%20Create,Start%20the%20agent%20on%20the%20other%20nodes.%20
+https://dbaclass.com/article/edb-failover-managerefm-for-managing-streaming-replication/
+
+AWS DMS SCT https://youtu.be/ki3r92Cfqwk   https://www.bing.com/ck/a?!
+https://docs.aws.amazon.com/dms/latest/userguide/getting-started-project.html
+
+sql server Important links
+*******************
+https://www.mssqltips.com/sqlservertip/5329/setting-sql-server-configuration-options-with-aws-rds-parameter-groups/
+https://red9.com/blog/best-practices-to-keep-your-sql-server-backups-safe/
+https://www.mssqltips.com/sqlservertip/1070/simple-script-to-backup-all-sql-server-databases/
+https://aws.amazon.com/premiumsupport/knowledge-center/native-backup-rds-sql-server/
+https://aws.amazon.com/blogs/database/best-practices-for-configuring-performance-parameters-for-amazon-rds-for-sql-server/
+https://blog.quest.com/the-anatomy-of-sql-server-deadlocks-and-the-best-ways-to-avoid-them/
+
+MongoDB Important links
+*******************
+https://www.bmc.com/blogs/mongodb-sharding-explained/
+
+
+MySQL important links 
+*****************
+https://phoenixnap.com/kb/improve-mysql-performance-tuning-optimization#:~:text=1%20Balance%20the%20Four%20Main%20Hardware%20Resources%20Storage,always%20feasible%20for%20older%20and%20legacy%20databases.%20
+https://itsfoss.com/basic-sql-commands/
+http://www.squarebox.com/server68-manual-mysqlmaintenance-tasks/
+https://sheeri.org/how-i-find-mysql-fragmentation/
+https://www.vionblog.com/mysql-tuning-scripts/
+https://stackhowto.com/list-of-mysql-commands-with-examples/#:~:text=List%20of%20MySQL%20Commands%20with%20Examples%201%201.,8.%20To%20delete%20a%20table.%20...%20More%20items
+https://www.stellarinfo.com/article/repair-mysql-database-tables.php#:~:text=Steps%20to%20Repair%20MySQL%20Database%20and%20Tables%20using,box%20appears%2C%20hit%20the%20OK%20button.%20More%20items
+https://www.percona.com/blog/2020/06/30/mysql-101-parameters-to-tune-for-mysql-performance/
+https://learn.microsoft.com/en-us/sql/relational-databases/performance/monitoring-performance-by-using-the-query-store?view=sql-server-ver15
+Detabase design  https://www.mssqltips.com/sqlservertip/6269/sql-server-database-diagram-tool-in-management-studio/
+
+
+setting up streaming replication on AWS EC2 (multiAZ)
+*****************************************************
+https://www.enterprisedb.com/blog/how-automate-postgresql-12-replication-and-failover-repmgr-part-1#PostgreSQL%20Performance%20Tuning
+
+
+Extensions
+**********
+🛠 𝗥𝗲𝗹𝗲𝘃𝗮𝗻𝘁 𝗥𝗲𝘀𝗼𝘂𝗿𝗰𝗲𝘀
+📌 Top PostgreSQL extensions ⇒ https://tsdb.co/blog-top-5-postgresql...
+📌 PGX ⇒ https://github.com/tcdi/pgx 
+📌 pg_stat_statements documentation ⇒​​ https://bit.ly/3zPS1wv
+📌 PostGIS website ⇒ https://postgis.net/install/
+📌 ZomboDB GitHub page ⇒ https://github.com/zombodb/zombodb
+📌 postgres_fdw documentation ⇒ https://bit.ly/3QzuhmX
+📌 pgspot ⇒ https://github.com/timescale/pgspot
+📌 pgSphere documentation ⇒ https://pgsphere.github.io/documentat...
+📌 PostPic documentation ⇒ https://github.com/drotiro/postpic
+📌 Intarray documentation ⇒ https://www.postgresql.org/docs/9.1/i...
+📌 PGX talk/conference ⇒ https://bit.ly/3Qf31u5
+
+
+Scale down e5-api pod
+
+kubectl scale --replicas=0 deployments.apps e5-api
+
+(Alternative command for scaling down e5-api)
+
+kubectl scale deployment e5-api --replicas=0
+
+(Better check if e5-api has been scaled down successfully using kubectl get podsorkubectl get deployment)
+
+Rely on the new pg_dumps in S3 or take a backup of the current e5 database
+
+
+pg_dump -O -h <hostName> -f </path/to/backup.sql> -U postgres e5
+Alternatively, using Lambda function pg_dump to take a backup, please reference Backup and share E5 database for more information.
+
+3. drop and recreate e5 database. I am including some sql commands that will  terminate connections. PostgreSQL will not let you drop, otherwise.
+
+a. you will need to connect to the postgres db via psql 
+
+
+psql -h <hostname> -U postgres postgres
+
+REVOKE CONNECT ON DATABASE e5 FROM PUBLIC, e5;
+
+SELECT pg_terminate_backend(pg_stat_activity.pid)
+FROM pg_stat_activity
+WHERE pg_stat_activity.datname = 'e5'
+AND pid <> pg_backend_pid();
+
+DROP database e5;
+
+CREATE DATABASE e5 OWNER e5;
+
+exit
+ 
+
+4. restore to newly create db as the e5 user
+
+
+psql -h <hostname> -f </path/to/restore.sql> -U e5 e5
+
+COPY  country FROM  '/database/data/test_data.copy' WITH delimiter ','  CSV HEADER;
+COPY country TO STDOUT (DELIMITER '|');	
+COPY country TO '/database/data/test_data.copy' (DELIMITER ' '); 
+
+pg_cron important commands
+
+to schedule a job, SELECT cron.schedule('job name', 'time', 'command');
+
+to check the scheduled jobs:     SELECT * FROM cron.job;
+
+To check the failed jobs : SELECT * FROM cron.job_run_details WHERE status = 'failed';
+
+To check the history of the jobs : SELECT * FROM cron.job_run_details;
+
+To delete or unschedule a job: SELECT cron.unschedule(job id);
+
+To update a cron value: UPDATE cron.job SET database = 'database1' WHERE jobid = 106;
+
+
+
+
+
+How to drop and recreate the database constraints on PostgreSQL
+droping constraints in the entire database
+*******************************
+source  -- https://confluence.atlassian.com/kb/how-to-drop-and-recreate-the-database-constraints-on-postgresql-776812450.html#:~:text=1%20Use%20the%20generated%20droppingConstraints.sql%20SQL%20script%20to,changes%20it%20might%20be%20necessary%20to%20rollback.%20
+
+copy (SELECT 'ALTER TABLE '||nspname||'.\"'||relname||'\" DROP CONSTRAINT \"'||conname||'\";'
+FROM pg_constraint
+INNER JOIN pg_class ON conrelid=pg_class.oid
+INNER JOIN pg_namespace ON pg_namespace.oid=pg_class.relnamespace
+ORDER BY CASE WHEN contype='f' THEN 0 ELSE 1 END,contype,nspname,relname,conname) to '<path-to-save>/droppingConstraints.sql';
+
+adding back those constraints
+**********************
+copy (SELECT 'ALTER TABLE '||nspname||'.\"'||relname||'\" ADD CONSTRAINT \"'||conname||'\" '|| pg_get_constraintdef(pg_constraint.oid)||''
+FROM pg_constraint
+INNER JOIN pg_class ON conrelid=pg_class.oid
+INNER JOIN pg_namespace ON pg_namespace.oid=pg_class.relnamespace
+ORDER BY CASE WHEN contype='f' THEN 0 ELSE 1 END DESC,contype DESC,nspname DESC,relname DESC,conname DESC) to '<path-to-save>/addingConstraint.sql';
+
+
+
+managing postgres with ansible
+###################
+
+https://computingforgeeks.com/how-to-manage-postgresql-database-with-ansible/#:~:text=How%20To%20Manage%20PostgreSQL%20Database%20with%20Ansible%201,Create%20the%20SQL%20file%20on%20the%20Managed%20Node
+
+https://watchanalyzer.com/humix/video/eda4754ab10371486d9144528858f6ff26747c463273fafa5e6e30529a7d2802
+
+Terraform configuration
+###############
+https://developer.hashicorp.com/terraform/tutorials/aws-get-started/infrastructure-as-code
+
+
+lamda function
+
+{
+  "PGDATABASE": "",
+  "PGUSER": "postgres",
+  "PGPASSWORD": "",
+  "PGHOST": "",
+  "S3_BUCKET": "",
+  "ROOT": "backup",
+  "S3_REGION": "us-east-1"
+}
+
+
+ "uuid-ossp" extension configuration
+*********************************
+These steps worked for me in my centos 7, when I was facing this issue in my postgres 12,
+
+sudo yum install postgresql-contrib-12   /    postgresql14-contrib
+
+sudo su - postgres or whatever your username for postgres is
+
+psql to enter into postgresql cli commands line
+
+ CREATE EXTENSION "uuid-ossp";
+
+
+Dynatrace Important videos
+************************
+https://www.youtube.com/watch?v=LEUxb9iM43k       | Dynatrace One Agent Install via Active Gate and Network Zones in Linux
